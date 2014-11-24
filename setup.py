@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name = 'chainmail',
-    version = '0.1.2',
+    version = '0.1.2.post1',
     author = 'Daniel Duckworth',
     author_email = 'duckworthd@gmail.com',
     description = 'Sending email is hard. Let\'s go shopping!',
