@@ -138,7 +138,7 @@ class SMTP(object):
   """Connection to an SMTP service"""
 
   def __init__(self):
-    self._host     = 'smtp.gmail.com'
+    self._host     = None
     self._port     = None
     self._username = None
     self._password = None
