@@ -6,6 +6,7 @@ from email.mime.audio       import MIMEAudio
 from email.mime.base        import MIMEBase
 from email.mime.multipart   import MIMEMultipart
 from email.mime.text        import MIMEText
+from email.mime.image       import MIMEImage
 from email.utils            import COMMASPACE, formatdate
 import mimetypes
 import smtplib
@@ -22,6 +23,7 @@ class Message(object):
     self._body        = ''
     self._encoding    = 'utf-8'
     self._attachments = []
+    self._embedded_images = []
 
   def sender(self, sender=None):
     """Get or set email sending this message"""
@@ -88,6 +90,11 @@ class Message(object):
     self._attachments.append(attachment)
     return self
 
+  def embed_image(self, image_filename, content_id):
+    """Add a single embedded image and its Content ID"""
+    self._embedded_images.append((content_id, image_filename))
+    return self
+
   def build(self):
     """build message string"""
     # There can be only ONE ENCODING TO RULE THEM ALL!! MUWAHAHAHA
@@ -96,7 +103,11 @@ class Message(object):
         [self._subject, self._body]
       )
 
-    msg = MIMEMultipart()
+    if self._embedded_images:
+        msg = MIMEMultipart('related')
+        #msg = MIMEMultipart('mixed')
+    else:
+        msg = MIMEMultipart()
     msg['From']     = self._sender
     msg['To']       = COMMASPACE.join(self._recipients)
     msg['Date']     = formatdate(localtime=True)
@@ -112,6 +123,15 @@ class Message(object):
     # add attachments
     for f in self._attachments:
       msg.attach(_build_attachment(f))
+
+    for content_id, image_filename in self._embedded_images:
+      fp = open(image_filename, 'rb')
+      msgImage = MIMEImage(fp.read())
+      fp.close()
+
+      # Define the image's ID as referenced above
+      msgImage.add_header('Content-ID', '<{0}>'.format(content_id))
+      msg.attach(msgImage)
 
     return msg.as_string()
 
