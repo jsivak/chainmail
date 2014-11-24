@@ -191,10 +191,11 @@ class SMTP(object):
   """Connection to an SMTP service"""
 
   def __init__(self):
-    self._host     = 'smtp.gmail.com'
+    self._host     = None
     self._port     = None
     self._username = None
     self._password = None
+    self._timeout  = None
 
   def host(self, host=None):
     """Set host; e.g. smtp.gmail.com"""
@@ -231,6 +232,17 @@ class SMTP(object):
       self._password = password
       return self
 
+  def timeout(self, timeout=None):
+    """Set post to connect to host
+
+    Defaults to None if timeout is unset
+    """
+    if timeout is None:
+      return self._timeout
+    else:
+      self._timeout = timeout
+      return self
+
   def send(self, message):
     """Send a `Message` object"""
     # choose port
@@ -242,7 +254,7 @@ class SMTP(object):
       else:
         port = 25
 
-    smtp = smtplib.SMTP(self._host, port)
+    smtp = smtplib.SMTP(self._host, port, timeout=self._timeout)
     if self._username is not None and self._password is not None:
       smtp.ehlo()
       smtp.starttls()
