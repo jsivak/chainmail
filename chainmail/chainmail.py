@@ -112,6 +112,9 @@ class Message(object):
     msg['To']       = COMMASPACE.join(self._recipients)
     msg['Date']     = formatdate(localtime=True)
     msg['Subject']  = Header(subject, 'utf-8')
+    # Set character encoding so that viewing the source
+    # of an HTML email is still readable to humans.
+    charset.add_charset('utf-8', charset.SHORTEST)
 
     # add body of email
     msg.attach(MIMEText(
