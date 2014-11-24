@@ -1,9 +1,15 @@
-from email.MIMEMultipart import MIMEMultipart
-from email.MIMEBase import MIMEBase
-from email.MIMEText import MIMEText
-from email.Utils import COMMASPACE, formatdate
-from email.header import Header
-from email import Encoders
+from bs4.dammit             import UnicodeDammit
+from email                  import encoders
+from email.header           import Header
+from email.mime.application import MIMEApplication
+from email.mime.audio       import MIMEAudio
+from email.mime.base        import MIMEBase
+from email.mime.multipart   import MIMEMultipart
+from email.mime.text        import MIMEText
+from email.mime.image       import MIMEImage
+from email.utils            import COMMASPACE, formatdate
+import email.charset as charset
+import mimetypes
 import smtplib
 
 
@@ -18,6 +24,9 @@ class Message(object):
     self._body        = ''
     self._encoding    = 'utf-8'
     self._attachments = []
+    self._embedded_images = []
+    self._carbon_copy = []
+    self._blind_copy = []
 
   def sender(self, sender=None):
     """Get or set email sending this message"""
@@ -26,6 +35,14 @@ class Message(object):
     else:
       self._sender = sender
       return self
+
+  def all_recipients(self):
+    """Get or all recipients of this email, including CC and BCC"""
+    # Make sure we get a copy of the _recipients
+    all_recipients = self._recipients[:]
+    all_recipients.extend(self._carbon_copy)
+    all_recipients.extend(self._blind_copy)
+    return all_recipients
 
   def recipients(self, recipients=None):
     """Get or set all recipients of this email"""
@@ -38,6 +55,16 @@ class Message(object):
   def recipient(self, recipient):
     """Add a single recipient"""
     self._recipients.append(recipient)
+    return self
+
+  def cc(self, recipient):
+    """Add a single recipient"""
+    self._carbon_copy.append(recipient)
+    return self
+
+  def bcc(self, recipient):
+    """Add a single recipient"""
+    self._blind_copy.append(recipient)
     return self
 
   def subject(self, subject=None):
@@ -84,39 +111,58 @@ class Message(object):
     self._attachments.append(attachment)
     return self
 
+  def embed_image(self, image_filename, content_id):
+    """Add a single embedded image and its Content ID"""
+    self._embedded_images.append((content_id, image_filename))
+    return self
+
   def build(self):
     """build message string"""
-    msg = MIMEMultipart()
+    # There can be only ONE ENCODING TO RULE THEM ALL!! MUWAHAHAHA
+    subject, body = map(
+        lambda x: UnicodeDammit(x).unicode_markup,
+        [self._subject, self._body]
+      )
+
+    if self._embedded_images:
+        msg = MIMEMultipart('related')
+        #msg = MIMEMultipart('mixed')
+    else:
+        msg = MIMEMultipart()
     msg['From']     = self._sender
     msg['To']       = COMMASPACE.join(self._recipients)
     msg['Date']     = formatdate(localtime=True)
-    msg['Subject']  = Header(self._subject, self._encoding)
+    msg['Subject']  = Header(subject, 'utf-8')
+    msg['Cc']       = COMMASPACE.join(self._carbon_copy)
+    # NOTE: Bcc headers are not added to the message
+    #       The BCC'd recipients are added to the smtplib recipient
+    #       list when the mail is actually sent.
+    # TODO: Send individual messages for each recipient on the BCC list
+    #       (and use the BCC header). This way the BCC'd recip's KNOW that they we're BCC'd.
+
+    # Set character encoding so that viewing the source
+    # of an HTML email is still readable to humans.
+    charset.add_charset('utf-8', charset.SHORTEST)
 
     # add body of email
     msg.attach(MIMEText(
-      self._body.encode(self._encoding),
+      body,
       _subtype=self._format,
-      _charset=self._encoding
+      _charset='utf-8',
     ))
 
     # add attachments
     for f in self._attachments:
-      # was f a path or an actual file?
-      is_path = isinstance(f, basestring)
+      msg.attach(_build_attachment(f))
 
-      part = MIMEBase('application', 'octet-stream')
-      if is_path:
-        f = open(f, "rb")
-        opened_locally = True
-      part.set_payload( f.read() )
-      Encoders.encode_base64(part)
-      part.add_header('Content-Disposition', 'attachment; filename="%s"' % (f.name,))
-      msg.attach(part)
+    for content_id, image_filename in self._embedded_images:
+      fp = open(image_filename, 'rb')
+      msgImage = MIMEImage(fp.read())
+      fp.close()
 
-      if is_path:
-        f.close()
-      else:
-        f.seek(0)
+      # Define the image's ID as referenced above
+      msgImage.add_header('Content-ID', '<{0}>'.format(content_id))
+      msg.attach(msgImage)
 
     return msg.as_string()
 
@@ -124,6 +170,8 @@ class Message(object):
     s = []
     s.append(u"sender=%s" % self.sender())
     s.append(u"recipients=%s" % self.recipients())
+    s.append(u"cc=%s" % self._carbon_copy)
+    s.append(u"bcc=%s" % self._blind_copy)
     s.append(u"subject=%s" % self.subject())
     s.append(u"format=%s" % self.format())
     s.append(u"body=%s" % self.body())
@@ -143,10 +191,11 @@ class SMTP(object):
   """Connection to an SMTP service"""
 
   def __init__(self):
-    self._host     = 'smtp.gmail.com'
+    self._host     = None
     self._port     = None
     self._username = None
     self._password = None
+    self._timeout  = None
 
   def host(self, host=None):
     """Set host; e.g. smtp.gmail.com"""
@@ -183,6 +232,17 @@ class SMTP(object):
       self._password = password
       return self
 
+  def timeout(self, timeout=None):
+    """Set post to connect to host
+
+    Defaults to None if timeout is unset
+    """
+    if timeout is None:
+      return self._timeout
+    else:
+      self._timeout = timeout
+      return self
+
   def send(self, message):
     """Send a `Message` object"""
     # choose port
@@ -194,13 +254,13 @@ class SMTP(object):
       else:
         port = 25
 
-    smtp = smtplib.SMTP(self._host, port)
+    smtp = smtplib.SMTP(self._host, port, timeout=self._timeout)
     if self._username is not None and self._password is not None:
       smtp.ehlo()
       smtp.starttls()
       smtp.ehlo()
       smtp.login(self._username, self._password)
-    smtp.sendmail(message.sender(), message.recipients(), message.build())
+    smtp.sendmail(message.sender(), message.all_recipients(), message.build())
     smtp.close()
 
   def __unicode__(self):
@@ -221,3 +281,54 @@ class SMTP(object):
 
 class ChainmailException(Exception):
   pass
+
+
+def _build_attachment(f):
+  """Construct appropriate MIME message part for a multi-part email.
+
+  Parameters
+  ----------
+  f : str or file
+      path to content or content itself. Must have a `name` attribute.
+
+  Returns
+  -------
+  part : MIMEBase or subclass thereof
+      content ready to be attached to a `MIMEMultipart`
+  """
+  is_path = isinstance(f, basestring)
+
+  if is_path:
+    # open path as a file
+    f = open(f, 'rb')
+  else:
+    # return to this position later
+    position = f.tell()
+
+  ctype, encoding = mimetypes.guess_type(f.name)
+  if ctype is None or encoding is not None:
+    ctype = 'application/octet-stream'
+  maintype, subtype = ctype.split('/', 1)
+  if maintype == 'text':
+    # Note: we should handle calculating the charset
+    content = UnicodeDammit(f.read()).unicode_markup
+    part = MIMEText(content, _subtype=subtype, _charset='utf-8')
+  elif maintype == 'image':
+    part = MIMEImage(f.read(), _subtype=subtype)
+  elif maintype == 'audio':
+    part = MIMEAudio(f.read(), _subtype=subtype)
+  elif maintype == 'application':
+    part = MIMEApplication(f.read(), _subtype=subtype)
+  else:
+    part = MIMEBase(maintype, subtype)
+    part.set_payload(f.read())
+    encoders.encode_base64(part)
+
+  part.add_header('Content-Disposition', 'attachment', filename=f.name)
+
+  if is_path:
+    f.close()
+  else:
+    f.seek(position)
+
+  return part
