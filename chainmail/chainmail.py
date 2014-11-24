@@ -25,6 +25,8 @@ class Message(object):
     self._encoding    = 'utf-8'
     self._attachments = []
     self._embedded_images = []
+    self._carbon_copy = []
+    self._blind_copy = []
 
   def sender(self, sender=None):
     """Get or set email sending this message"""
@@ -33,6 +35,14 @@ class Message(object):
     else:
       self._sender = sender
       return self
+
+  def all_recipients(self):
+    """Get or all recipients of this email, including CC and BCC"""
+    # Make sure we get a copy of the _recipients
+    all_recipients = self._recipients[:]
+    all_recipients.extend(self._carbon_copy)
+    all_recipients.extend(self._blind_copy)
+    return all_recipients
 
   def recipients(self, recipients=None):
     """Get or set all recipients of this email"""
@@ -45,6 +55,16 @@ class Message(object):
   def recipient(self, recipient):
     """Add a single recipient"""
     self._recipients.append(recipient)
+    return self
+
+  def cc(self, recipient):
+    """Add a single recipient"""
+    self._carbon_copy.append(recipient)
+    return self
+
+  def bcc(self, recipient):
+    """Add a single recipient"""
+    self._blind_copy.append(recipient)
     return self
 
   def subject(self, subject=None):
@@ -113,6 +133,12 @@ class Message(object):
     msg['To']       = COMMASPACE.join(self._recipients)
     msg['Date']     = formatdate(localtime=True)
     msg['Subject']  = Header(subject, 'utf-8')
+    msg['Cc']       = COMMASPACE.join(self._carbon_copy)
+    # NOTE: Bcc headers are not added to the message
+    #       The BCC'd recipients are added to the smtplib recipient
+    #       list when the mail is actually sent.
+    # TODO: Send individual messages for each recipient on the BCC list
+    #       (and use the BCC header). This way the BCC'd recip's KNOW that they we're BCC'd.
 
     # Set character encoding so that viewing the source
     # of an HTML email is still readable to humans.
@@ -144,6 +170,8 @@ class Message(object):
     s = []
     s.append(u"sender=%s" % self.sender())
     s.append(u"recipients=%s" % self.recipients())
+    s.append(u"cc=%s" % self._carbon_copy)
+    s.append(u"bcc=%s" % self._blind_copy)
     s.append(u"subject=%s" % self.subject())
     s.append(u"format=%s" % self.format())
     s.append(u"body=%s" % self.body())
@@ -220,7 +248,7 @@ class SMTP(object):
       smtp.starttls()
       smtp.ehlo()
       smtp.login(self._username, self._password)
-    smtp.sendmail(message.sender(), message.recipients(), message.build())
+    smtp.sendmail(message.sender(), message.all_recipients(), message.build())
     smtp.close()
 
   def __unicode__(self):
