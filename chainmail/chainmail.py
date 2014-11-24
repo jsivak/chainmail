@@ -8,6 +8,7 @@ from email.mime.multipart   import MIMEMultipart
 from email.mime.text        import MIMEText
 from email.mime.image       import MIMEImage
 from email.utils            import COMMASPACE, formatdate
+import email.charset as charset
 import mimetypes
 import smtplib
 
@@ -112,6 +113,7 @@ class Message(object):
     msg['To']       = COMMASPACE.join(self._recipients)
     msg['Date']     = formatdate(localtime=True)
     msg['Subject']  = Header(subject, 'utf-8')
+
     # Set character encoding so that viewing the source
     # of an HTML email is still readable to humans.
     charset.add_charset('utf-8', charset.SHORTEST)
