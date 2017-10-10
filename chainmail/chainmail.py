@@ -260,8 +260,11 @@ class SMTP(object):
       smtp.starttls()
       smtp.ehlo()
       smtp.login(self._username, self._password)
-    smtp.sendmail(message.sender(), message.all_recipients(), message.build())
+
+    refused_recipients = smtp.sendmail(message.sender(), message.all_recipients(), message.build())
     smtp.close()
+    
+    return refused_recipients
 
   def __unicode__(self):
     s = []
