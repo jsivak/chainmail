@@ -27,6 +27,7 @@ class Message(object):
     self._embedded_images = []
     self._carbon_copy = []
     self._blind_copy = []
+    self._reply_to   = []
 
   def sender(self, sender=None):
     """Get or set email sending this message"""
@@ -74,6 +75,11 @@ class Message(object):
     else:
       self._subject = subject
       return self
+
+  def replyto(self, replyto):
+    """Add a single replyto address"""
+    self._reply_to.append(replyto)
+    return self
 
   def format(self, format=None):
     """`plain` or `html`"""
@@ -134,6 +140,7 @@ class Message(object):
     msg['Date']     = formatdate(localtime=True)
     msg['Subject']  = Header(subject, 'utf-8')
     msg['Cc']       = COMMASPACE.join(self._carbon_copy)
+    msg['Reply-To'] = COMMASPACE.join(self._reply_to)
     # NOTE: Bcc headers are not added to the message
     #       The BCC'd recipients are added to the smtplib recipient
     #       list when the mail is actually sent.
@@ -177,6 +184,7 @@ class Message(object):
     s.append(u"body=%s" % self.body())
     s.append(u"encoding=%s" % self.encoding())
     s.append(u"attachments=%s" % self.attachments())
+    s.append(u"replyto=%s" % self._reply_to)
 
     return u"Message(%s)" % (u", ".join(s))
 
@@ -299,6 +307,11 @@ def _build_attachment(f):
   part : MIMEBase or subclass thereof
       content ready to be attached to a `MIMEMultipart`
   """
+  try:
+      basestring
+  except NameError:
+      basestring = str
+
   is_path = isinstance(f, basestring)
 
   if is_path:
