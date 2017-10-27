@@ -23,7 +23,7 @@ class Message(object):
     self._format      = 'plain'
     self._body        = ''
     self._encoding    = 'utf-8'
-    self._attachments = []
+    self._attachments = []  # list of 2 element tuples
     self._embedded_images = []
     self._carbon_copy = []
     self._blind_copy = []
@@ -109,12 +109,19 @@ class Message(object):
     if attachments is None:
       return self._attachments
     else:
-      self._attachments = attachments
+      # kwargs part of tuple is not supported here
+      self._attachments = [(x, {}) for x in attachments]
       return self
 
-  def attachment(self, attachment):
-    """Add a single attachment"""
-    self._attachments.append(attachment)
+  def attachment(self, attachment, **kwargs):
+    """Add a single attachment. Optionally supply keyword arguments for building
+    the attachment.
+
+    Keyword Args
+    ------------
+    filename: str for header's Content-Disposition 'filename' parameter
+    """
+    self._attachments.append((attachment, kwargs or {}))
     return self
 
   def embed_image(self, image_filename, content_id):
@@ -159,8 +166,8 @@ class Message(object):
     ))
 
     # add attachments
-    for f in self._attachments:
-      msg.attach(_build_attachment(f))
+    for f, kwargs in self._attachments:
+      msg.attach(_build_attachment(f, **kwargs))
 
     for content_id, image_filename in self._embedded_images:
       fp = open(image_filename, 'rb')
@@ -294,13 +301,16 @@ class ChainmailException(Exception):
   pass
 
 
-def _build_attachment(f):
+def _build_attachment(f, filename=None):
   """Construct appropriate MIME message part for a multi-part email.
 
   Parameters
   ----------
   f : str or file
       path to content or content itself. Must have a `name` attribute.
+  filename: str
+            the filename parameter of the Content-Disposition in
+            the header
 
   Returns
   -------
@@ -340,7 +350,9 @@ def _build_attachment(f):
     part.set_payload(f.read())
     encoders.encode_base64(part)
 
-  part.add_header('Content-Disposition', 'attachment', filename=f.name)
+  # Using f.name can result in a filename with path information (depending on
+  # how the attachment was added).
+  part.add_header('Content-Disposition', 'attachment', filename=filename or f.name)
 
   if is_path:
     f.close()
