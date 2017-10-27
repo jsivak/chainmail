@@ -23,10 +23,11 @@ class Message(object):
     self._format      = 'plain'
     self._body        = ''
     self._encoding    = 'utf-8'
-    self._attachments = []
+    self._attachments = []  # list of 2 element tuples
     self._embedded_images = []
     self._carbon_copy = []
     self._blind_copy = []
+    self._reply_to   = []
 
   def sender(self, sender=None):
     """Get or set email sending this message"""
@@ -75,6 +76,11 @@ class Message(object):
       self._subject = subject
       return self
 
+  def replyto(self, replyto):
+    """Add a single replyto address"""
+    self._reply_to.append(replyto)
+    return self
+
   def format(self, format=None):
     """`plain` or `html`"""
     if format is None:
@@ -103,12 +109,19 @@ class Message(object):
     if attachments is None:
       return self._attachments
     else:
-      self._attachments = attachments
+      # kwargs part of tuple is not supported here
+      self._attachments = [(x, {}) for x in attachments]
       return self
 
-  def attachment(self, attachment):
-    """Add a single attachment"""
-    self._attachments.append(attachment)
+  def attachment(self, attachment, **kwargs):
+    """Add a single attachment. Optionally supply keyword arguments for building
+    the attachment.
+
+    Keyword Args
+    ------------
+    filename: str for header's Content-Disposition 'filename' parameter
+    """
+    self._attachments.append((attachment, kwargs or {}))
     return self
 
   def embed_image(self, image_filename, content_id):
@@ -134,6 +147,7 @@ class Message(object):
     msg['Date']     = formatdate(localtime=True)
     msg['Subject']  = Header(subject, 'utf-8')
     msg['Cc']       = COMMASPACE.join(self._carbon_copy)
+    msg['Reply-To'] = COMMASPACE.join(self._reply_to)
     # NOTE: Bcc headers are not added to the message
     #       The BCC'd recipients are added to the smtplib recipient
     #       list when the mail is actually sent.
@@ -152,8 +166,8 @@ class Message(object):
     ))
 
     # add attachments
-    for f in self._attachments:
-      msg.attach(_build_attachment(f))
+    for f, kwargs in self._attachments:
+      msg.attach(_build_attachment(f, **kwargs))
 
     for content_id, image_filename in self._embedded_images:
       fp = open(image_filename, 'rb')
@@ -177,6 +191,7 @@ class Message(object):
     s.append(u"body=%s" % self.body())
     s.append(u"encoding=%s" % self.encoding())
     s.append(u"attachments=%s" % self.attachments())
+    s.append(u"replyto=%s" % self._reply_to)
 
     return u"Message(%s)" % (u", ".join(s))
 
@@ -286,19 +301,27 @@ class ChainmailException(Exception):
   pass
 
 
-def _build_attachment(f):
+def _build_attachment(f, filename=None):
   """Construct appropriate MIME message part for a multi-part email.
 
   Parameters
   ----------
   f : str or file
       path to content or content itself. Must have a `name` attribute.
+  filename: str
+            the filename parameter of the Content-Disposition in
+            the header
 
   Returns
   -------
   part : MIMEBase or subclass thereof
       content ready to be attached to a `MIMEMultipart`
   """
+  try:
+      basestring
+  except NameError:
+      basestring = str
+
   is_path = isinstance(f, basestring)
 
   if is_path:
@@ -327,7 +350,9 @@ def _build_attachment(f):
     part.set_payload(f.read())
     encoders.encode_base64(part)
 
-  part.add_header('Content-Disposition', 'attachment', filename=f.name)
+  # Using f.name can result in a filename with path information (depending on
+  # how the attachment was added).
+  part.add_header('Content-Disposition', 'attachment', filename=filename or f.name)
 
   if is_path:
     f.close()
